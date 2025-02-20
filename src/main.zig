@@ -401,7 +401,7 @@ pub fn main() !void {
                     }
                 }
 
-                buffer.drawBoxCenter(!config.hide_borders, config.blank_box);
+                // buffer.drawBoxCenter(!config.hide_borders, config.blank_box);
 
                 if (resolution_changed) {
                     const coordinates = buffer.calculateComponentCoordinates();
@@ -484,14 +484,14 @@ pub fn main() !void {
                     length += brightness_up_len + 1;
                 }
 
-                if (config.box_title) |title| {
-                    buffer.drawConfinedLabel(title, buffer.box_x, buffer.box_y - 1, buffer.box_width);
-                }
+                // if (config.box_title) |title| {
+                //     buffer.drawConfinedLabel(title, buffer.box_x, buffer.box_y - 1, buffer.box_width);
+                // }
 
-                if (config.vi_mode) {
-                    const label_txt = if (insert_mode) lang.insert else lang.normal;
-                    buffer.drawLabel(label_txt, buffer.box_x, buffer.box_y + buffer.box_height);
-                }
+                // if (config.vi_mode) {
+                //     const label_txt = if (insert_mode) lang.insert else lang.normal;
+                //     buffer.drawLabel(label_txt, buffer.box_x, buffer.box_y + buffer.box_height);
+                // }
 
                 draw_lock_state: {
                     const lock_state = interop.getLockState(config.console_dev) catch {

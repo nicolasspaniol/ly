@@ -6,179 +6,168 @@ const TerminalBuffer = @import("../tui/TerminalBuffer.zig");
 const interop = @import("../interop.zig");
 const termbox = interop.termbox;
 
-pub const FRAME_DELAY: u64 = 8;
-
-// Allowed codepoints
-pub const MIN_CODEPOINT: isize = 33;
-pub const MAX_CODEPOINT: isize = 123 - MIN_CODEPOINT;
-
-// Characters change mid-scroll
-pub const MID_SCROLL_CHANGE = true;
+const portal = @import("../portal.zig");
 
 const Matrix = @This();
 
-pub const Dot = struct {
-    value: isize,
-    is_head: bool,
-};
-
-pub const Line = struct {
-    space: isize,
-    length: isize,
-    update: isize,
-};
-
-allocator: Allocator,
 terminal_buffer: *TerminalBuffer,
-dots: []Dot,
-lines: []Line,
-frame: u64,
-count: u64,
-fg_ini: u16,
+frame: u64 = 0,
+ascii_art: u8 = 0,
+skip_actions: u16 = 0,
+skip_frames: u64 = 0,
+index: u16 = 0,
+credits_start_frame: u64 = std.math.maxInt(u64),
 
 pub fn init(allocator: Allocator, terminal_buffer: *TerminalBuffer, fg_ini: u16) !Matrix {
-    const dots = try allocator.alloc(Dot, terminal_buffer.width * (terminal_buffer.height + 1));
-    const lines = try allocator.alloc(Line, terminal_buffer.width);
-
-    initBuffers(dots, lines, terminal_buffer.width, terminal_buffer.height, terminal_buffer.random);
+    _ = fg_ini;
+    _ = allocator;
 
     return .{
-        .allocator = allocator,
         .terminal_buffer = terminal_buffer,
-        .dots = dots,
-        .lines = lines,
-        .frame = 3,
-        .count = 0,
-        .fg_ini = fg_ini,
     };
 }
 
 pub fn deinit(self: Matrix) void {
-    self.allocator.free(self.dots);
-    self.allocator.free(self.lines);
+    _ = self;
 }
 
+// Runs when the resolution changes
 pub fn realloc(self: *Matrix) !void {
-    const dots = try self.allocator.realloc(self.dots, self.terminal_buffer.width * (self.terminal_buffer.height + 1));
-    const lines = try self.allocator.realloc(self.lines, self.terminal_buffer.width);
-
-    initBuffers(dots, lines, self.terminal_buffer.width, self.terminal_buffer.height, self.terminal_buffer.random);
-
-    self.dots = dots;
-    self.lines = lines;
+    _ = self;
 }
 
 pub fn draw(self: *Matrix) void {
-    const buf_height = self.terminal_buffer.height;
-    const buf_width = self.terminal_buffer.width;
-    self.count += 1;
-    if (self.count > FRAME_DELAY) {
-        self.frame += 1;
-        if (self.frame > 4) self.frame = 1;
-        self.count = 0;
+    self.terminal_buffer.fg = 20; // Yellow
 
-        var x: usize = 0;
-        while (x < self.terminal_buffer.width) : (x += 2) {
-            var tail: usize = 0;
-            var line = &self.lines[x];
-            if (self.frame <= line.update) continue;
+    draw_portal_box(self, 42, 7, 50, 52);
+    draw_left_typewriter(self, 45, 9);
+    draw_portal_box(self, 94, 7, 50, 52);
+    draw_portal_box(self, 146, 7, 50, 31);
+    draw_right_typewriter(self, 149, 36, 27);
+    draw_ascii_art(self, 151, 39);
 
-            if (self.dots[x].value == -1 and self.dots[self.terminal_buffer.width + x].value == ' ') {
-                if (line.space > 0) {
-                    line.space -= 1;
-                } else {
-                    const randint = self.terminal_buffer.random.int(i16);
-                    const h: isize = @intCast(self.terminal_buffer.height);
-                    line.length = @mod(randint, h - 3) + 3;
-                    self.dots[x].value = @mod(randint, MAX_CODEPOINT) + MIN_CODEPOINT;
-                    line.space = @mod(randint, h + 1);
-                }
-            }
+    self.terminal_buffer.fg = 0; // Reset color
 
-            var y: usize = 0;
-            var first_col = true;
-            var seg_len: u64 = 0;
-            height_it: while (y <= buf_height) : (y += 1) {
-                var dot = &self.dots[buf_width * y + x];
-                // Skip over spaces
-                while (y <= buf_height and (dot.value == ' ' or dot.value == -1)) {
-                    y += 1;
-                    if (y > buf_height) break :height_it;
-                    dot = &self.dots[buf_width * y + x];
-                }
+    self.frame += 1;
+}
 
-                // Find the head of this column
-                tail = y;
-                seg_len = 0;
-                while (y <= buf_height and dot.value != ' ' and dot.value != -1) {
-                    dot.is_head = false;
-                    if (MID_SCROLL_CHANGE) {
-                        const randint = self.terminal_buffer.random.int(i16);
-                        if (@mod(randint, 8) == 0) {
-                            dot.value = @mod(randint, MAX_CODEPOINT) + MIN_CODEPOINT;
-                        }
-                    }
+fn draw_portal_box(self: *Matrix, x: u16, y: u16, w: u16, h: u16) void {
+    self.terminal_buffer.drawCharMultiple('-', x, y, w + 1);
+    self.terminal_buffer.drawCharMultiple('-', x, y + h, w + 1);
 
-                    y += 1;
-                    seg_len += 1;
-                    // Head's down offscreen
-                    if (y > buf_height) {
-                        self.dots[buf_width * tail + x].value = ' ';
-                        break :height_it;
-                    }
-                    dot = &self.dots[buf_width * y + x];
-                }
-
-                const randint = self.terminal_buffer.random.int(i16);
-                dot.value = @mod(randint, MAX_CODEPOINT) + MIN_CODEPOINT;
-                dot.is_head = true;
-
-                if (seg_len > line.length or !first_col) {
-                    self.dots[buf_width * tail + x].value = ' ';
-                    self.dots[x].value = -1;
-                }
-                first_col = false;
-            }
-        }
-    }
-
-    var x: usize = 0;
-    while (x < buf_width) : (x += 2) {
-        var y: usize = 1;
-        while (y <= self.terminal_buffer.height) : (y += 1) {
-            const dot = self.dots[buf_width * y + x];
-
-            var fg = self.fg_ini;
-
-            if (dot.value == -1 or dot.value == ' ') {
-                _ = termbox.tb_set_cell(@intCast(x), @intCast(y - 1), ' ', fg, termbox.TB_DEFAULT);
-                continue;
-            }
-
-            if (dot.is_head) fg = @intCast(termbox.TB_WHITE | termbox.TB_BOLD);
-            _ = termbox.tb_set_cell(@intCast(x), @intCast(y - 1), @intCast(dot.value), fg, termbox.TB_DEFAULT);
+    for ((y + 1)..(y + h)) |cy| {
+        if (cy % 2 == 0) {
+            self.terminal_buffer.drawCharMultiple('|', x, cy, 1);
+            self.terminal_buffer.drawCharMultiple('|', x + w, cy, 1);
         }
     }
 }
 
-fn initBuffers(dots: []Dot, lines: []Line, width: usize, height: usize, random: Random) void {
-    var y: usize = 0;
-    while (y <= height) : (y += 1) {
-        var x: usize = 0;
-        while (x < width) : (x += 2) {
-            dots[y * width + x].value = -1;
+fn draw_left_typewriter(self: *Matrix, x: u16, y: u16) void {
+    var frame = self.frame - self.skip_frames;
+
+    // Cursor coordinates
+    var cx = x;
+    var cy = y;
+
+    it: for (self.skip_actions.., portal.still_alive[self.skip_actions..]) |i, action| {
+        const d = duration(action);
+
+        switch (action) {
+            .roll_credits => {
+                self.credits_start_frame = self.frame - frame;
+            },
+            .change_art => |art| self.ascii_art = art,
+            .clear_screen => {
+                self.skip_actions = @intCast(i + 1);
+                self.skip_frames = self.frame - frame;
+            },
+            .write => |sentence| {
+                if (frame > d) {
+                    self.terminal_buffer.drawLabel(sentence.text, cx, cy);
+                    cy += sentence.nl;
+                    cx += @intCast(sentence.text.len);
+                    if (sentence.nl != 0) cx = x;
+                } else {
+                    self.index = @truncate(frame / sentence.chd);
+                    self.terminal_buffer.drawLabel(sentence.text[0..self.index], cx, cy);
+                    cx += self.index;
+                }
+            },
+            .delay => {},
+        }
+
+        if (frame <= d) break :it;
+        frame -= d;
+    }
+
+    const cursor_symbol: u8 = if ((self.frame / 45) % 2 == 0) '_' else ' ';
+    self.terminal_buffer.drawCharMultiple(cursor_symbol, cx, cy, 1);
+}
+
+fn draw_right_typewriter(self: *Matrix, x: u16, y: u16, max_height: u16) void {
+    const cursor_symbol: u8 = if ((self.frame / 45) % 2 == 0) ' ' else '_';
+    const sentence = portal.credits;
+
+    // The amount of frames passed since the credits started, clamped between
+    // 0 and the duration of the sequence
+    const progress: u64 = blk: {
+        const f: i128 = @as(i128, self.frame) - self.credits_start_frame;
+        break :blk @min(@max(f, 0), duration(.{ .write = sentence }));
+    };
+
+    const index: u64 = progress / sentence.chd;
+    var dy: u16 = 0;
+    var nl_index: usize = index;
+    var cursor_drawn = false;
+
+    for (1..index + 1) |i| {
+        const ri = index - i;
+
+        if (sentence.text[ri] == '\n' or ri == 0) {
+            const nl_compensation: u16 = blk: {
+                if (ri == 0) break :blk 0;
+                break :blk 1;
+            };
+            self.terminal_buffer.drawLabel(sentence.text[ri + nl_compensation .. nl_index], x, y - dy);
+            nl_index = ri;
+            dy += 2;
+
+            if (dy > max_height) break;
+
+            if (!cursor_drawn) {
+                self.terminal_buffer.drawCharMultiple(cursor_symbol, x + index - ri - 1, y, 1);
+                cursor_drawn = true;
+            }
         }
     }
 
-    var x: usize = 0;
-    while (x < width) : (x += 2) {
-        var line = lines[x];
-        const h: isize = @intCast(height);
-        line.space = @mod(random.int(i16), h) + 1;
-        line.length = @mod(random.int(i16), h - 3) + 3;
-        line.update = @mod(random.int(i16), 3) + 1;
-        lines[x] = line;
-
-        dots[width + x].value = ' ';
+    if (!cursor_drawn) {
+        self.terminal_buffer.drawCharMultiple(cursor_symbol, x, y, 1);
     }
+}
+
+fn draw_ascii_art(self: *Matrix, x: u16, y: u16) void {
+    const art = portal.ascii_arts[self.ascii_art];
+
+    var last_nl: usize = 0;
+    var line: u16 = 0;
+
+    for (0.., art) |i, c| {
+        if (c == '\n') {
+            self.terminal_buffer.drawLabel(art[last_nl..i], x, y + line);
+            line += 1;
+            last_nl = i + 1;
+        }
+    }
+
+    self.terminal_buffer.drawLabel(art[last_nl..], x, y + line);
+}
+
+pub fn duration(action: portal.TwAction) u16 {
+    return switch (action) {
+        .delay => |len| len,
+        .write => |sentence| @intCast(sentence.text.len * sentence.chd),
+        else => 0,
+    };
 }
