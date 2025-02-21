@@ -1,3 +1,6 @@
+This is a fork of the ly display manager which includes the Portal ending sequence as a background animation.
+
+**This project was made for personal usage and may not work well in different systems.** 
 
 # Ly - a TUI display manager
 ![Ly screenshot](.github/screenshot.png "Ly screenshot")
