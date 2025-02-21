@@ -11,19 +11,43 @@ const portal = @import("../portal.zig");
 const Matrix = @This();
 
 terminal_buffer: *TerminalBuffer,
-frame: u64 = 0,
+frame: u64,
 ascii_art: u8 = 0,
 skip_actions: u16 = 0,
 skip_frames: u64 = 0,
-index: u16 = 0,
 credits_start_frame: u64 = std.math.maxInt(u64),
 
 pub fn init(allocator: Allocator, terminal_buffer: *TerminalBuffer, fg_ini: u16) !Matrix {
     _ = fg_ini;
     _ = allocator;
 
+    // Generates a random start position for the song
+    var seed: u64 = undefined;
+    std.posix.getrandom(std.mem.asBytes(&seed)) catch unreachable;
+    var prng = std.rand.DefaultPrng.init(seed);
+    // Uses the credit's duration as an approximation for the song length
+    var start_frame = prng.random().uintLessThan(u64, duration(.{ .write = portal.credits }));
+
+    // Forces the start position to be at the beginning of an action, except by
+    // "delay" actions
+    var frame = start_frame;
+    for (portal.still_alive) |action| {
+        const d = duration(action);
+
+        if (frame > d) {
+            frame -= d;
+        } else {
+            switch (action) {
+                .delay => |delay| start_frame = frame + delay,
+                else => start_frame -= frame,
+            }
+            break;
+        }
+    }
+
     return .{
         .terminal_buffer = terminal_buffer,
+        .frame = start_frame,
     };
 }
 
@@ -89,9 +113,9 @@ fn draw_left_typewriter(self: *Matrix, x: u16, y: u16) void {
                     cx += @intCast(sentence.text.len);
                     if (sentence.nl != 0) cx = x;
                 } else {
-                    self.index = @truncate(frame / sentence.chd);
-                    self.terminal_buffer.drawLabel(sentence.text[0..self.index], cx, cy);
-                    cx += self.index;
+                    const index: u16 = @truncate(frame / sentence.chd);
+                    self.terminal_buffer.drawLabel(sentence.text[0..index], cx, cy);
+                    cx += index;
                 }
             },
             .delay => {},
